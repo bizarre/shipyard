@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+  <h1>DWSC test</h1>
+  <button onclick="connect()">connect</button>
+  <input id="input" placeholder="textbox">
+  <button onclick="send(document.getElementById('input').value) && (document.getElementById('input').value = '')">send</button>
+  <script>
+    let socket;
+    const connect = () => {
+      socket = new WebSocket('ws://localhost:8080')
+
+      socket.addEventListener('open', function (event) {
+          socket.send('Hello Server!');
+      });
+
+      socket.addEventListener('message', function (event) {
+          console.log('Message from server ', event.data);
+      });
+    }
+
+    const send = (message) => {
+      if (socket) {
+        socket.send(JSON.stringify({"message": message}))
+      }
+    }
+  </script>
+</body>
+</html>
