@@ -1,8 +1,13 @@
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncRead, AsyncWrite};
 use std::thread::spawn;
-use tungstenite::{WebSocket, accept};
+use tokio_tungstenite::{accept_async, WebSocketStream};
 use std::net::{IpAddr};
+use shiplift::{tty::TtyChunk, Docker};
+use futures::future;
+use futures::{Stream, StreamExt};
+use futures::prelude::*;
 
 pub struct DockerWebConsoleServer {
   host: IpAddr,
@@ -15,54 +20,53 @@ impl DockerWebConsoleServer {
     Self { host, port }
   }
 
-  pub fn start(self) {
+  pub async fn start(self) {
     let address = format!("{}:{}", self.host.to_string(), self.port);
     println!("Starting server on {}...", address);
     
-    let server = TcpListener::bind(address).unwrap();
+    let server = TcpListener::bind(address).await.unwrap();
 
     println!("Server successfully started.");
 
-    for stream in server.incoming() {
-      spawn (move || {
-          let websocket = accept(stream.unwrap()).unwrap();
-          
-          println!("Client successfully connected.");
-          
-          let session = DockerWebConsoleServerSession::init(websocket);
-          
-          if let Ok(session) = session {
-            session.start()
-          } else {
-            println!("Failed to setup docker container.")
-          }
+    loop {
+      let (socket, _) = server.accept().await.unwrap();
+      tokio::spawn(async {
+        let websocket = accept_async(socket).await.expect("Error during the websocket handshake occurred");
+
+        println!("Client successfully connected.");
+              
+        let session = DockerWebConsoleServerSession::init(websocket);
+        if let Ok(session) = session {
+          session.start().await
+        } else {
+          println!("Failed to start docker container.")
+        }
       });
     }
 
   }
 }
 
-struct DockerWebConsoleServerSession<T> {
-  websocket: WebSocket<T>
+struct DockerWebConsoleServerSession {
+  websocket: WebSocketStream<TcpStream>
 }
 
-impl <T> DockerWebConsoleServerSession<T> where T: Write + Read {
+impl DockerWebConsoleServerSession {
 
-  fn init(websocket: WebSocket<T>) -> std::io::Result<Self> {
+  fn init(websocket: WebSocketStream<TcpStream>) -> std::io::Result<Self> {
+    let docker = Docker::new();
+    // prep
     Ok(Self { websocket })
   }
 
-  fn start(self) {
-    let mut websocket = self.websocket;
-
-    loop {
-      let msg = websocket.read_message().unwrap();
-
-      if msg.is_binary() || msg.is_text() {
-          websocket.write_message(msg).unwrap();
-      }
-    }
-
+  async fn start(self) {
+    let  websocket = self.websocket;
+    let (write, read) = websocket.split();
+    // We should not forward messages other than text or binary.
+    read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
+        .forward(write)
+        .await
+        .expect("Failed to forward messages")
   }
 
 }
