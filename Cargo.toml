@@ -1,5 +1,5 @@
 [package]
-name = "dwcs"
+name = "shipyard"
 version = "0.1.0"
 edition = "2018"
 
@@ -8,7 +8,10 @@ edition = "2018"
 [dependencies]
 structopt = "0.3.23"
 structopt-flags = "0.3"
-shiplift = "0.7"
+shiplift = { git = "https://github.com/bizarre/shiplift", branch = "bizarre/add-interactive-option" }
 tokio = { version = "1.12.0", features = [ "full" ] }
+tokio-util = { version = "0.6.8", features = [ "io" ] }
 tokio-tungstenite = "0.15.0"
 futures = "0.3.17"
+async_io_stream = "0.3.2"
+websocket = "0.24.0"

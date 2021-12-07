@@ -1,1 +1,3 @@
-# docker web console server (dwcs)
+# shipyard.rs
+on-demand containers exposed over websockets
+

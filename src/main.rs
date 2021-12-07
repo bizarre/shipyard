@@ -20,6 +20,6 @@ async fn main() {
   let opt = Opt::from_args();
   let host = opt.host.get_with_default(IpAddr::V4(Ipv4Addr::new(127,0,0,1)));
 
-  let server = DockerWebConsoleServer::create(host, opt.port);
+  let server = DockerWebConsoleServer::create(host, opt.port, opt.image);
   server.start().await
 }

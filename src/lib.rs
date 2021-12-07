@@ -1,23 +1,21 @@
-use std::io::{Read, Write};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncRead, AsyncWrite};
-use std::thread::spawn;
-use tokio_tungstenite::{accept_async, WebSocketStream};
+use tokio_tungstenite::{accept_async, WebSocketStream, client_async};
 use std::net::{IpAddr};
-use shiplift::{tty::TtyChunk, Docker};
-use futures::future;
-use futures::{Stream, StreamExt};
-use futures::prelude::*;
+use shiplift::{Docker, ContainerOptions};
+use futures::{StreamExt};
+use futures::join;
+use tokio::net::UnixStream;
 
 pub struct DockerWebConsoleServer {
   host: IpAddr,
-  port: u32
+  port: u32,
+  image: String
 }
 
 impl DockerWebConsoleServer {
 
-  pub fn create(host: IpAddr, port: u32) -> Self {
-    Self { host, port }
+  pub fn create<S: Into<String>>(host: IpAddr, port: u32, image: S) -> Self {
+    Self { host, port, image: image.into() }
   }
 
   pub async fn start(self) {
@@ -30,12 +28,13 @@ impl DockerWebConsoleServer {
 
     loop {
       let (socket, _) = server.accept().await.unwrap();
+      let image = self.image.to_string();
       tokio::spawn(async {
         let websocket = accept_async(socket).await.expect("Error during the websocket handshake occurred");
 
         println!("Client successfully connected.");
               
-        let session = DockerWebConsoleServerSession::init(websocket);
+        let session = DockerWebConsoleServerSession::init(image, websocket).await;
         if let Ok(session) = session {
           session.start().await
         } else {
@@ -48,25 +47,55 @@ impl DockerWebConsoleServer {
 }
 
 struct DockerWebConsoleServerSession {
+  container_id: String,
   websocket: WebSocketStream<TcpStream>
 }
 
 impl DockerWebConsoleServerSession {
 
-  fn init(websocket: WebSocketStream<TcpStream>) -> std::io::Result<Self> {
+  async fn init(image: String, websocket: WebSocketStream<TcpStream>) -> Result<Self, shiplift::Error> {
     let docker = Docker::new();
-    // prep
-    Ok(Self { websocket })
+
+    return match docker
+        .containers()
+        .create(&ContainerOptions::builder(image.as_ref()).tty(true).open_stdin(true).build())
+        .await
+    {
+        Ok(info) => { 
+          let handle = Self { container_id: info.id, websocket };
+          Ok(handle)
+       },
+        Err(e) => { 
+          eprintln!("Error: {}", e);
+          Err(e)
+        }
+    }
+  
   }
 
   async fn start(self) {
-    let  websocket = self.websocket;
-    let (write, read) = websocket.split();
-    // We should not forward messages other than text or binary.
-    read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
-        .forward(write)
-        .await
-        .expect("Failed to forward messages")
+    let docker = Docker::new();
+    
+    let container_id = &self.container_id;
+    let websocket = self.websocket;
+
+    let (write_ws, read_ws) = websocket.split();
+
+    match docker.containers().get(&self.container_id).start().await {
+      Ok(_) => {
+        println!("Container started.");
+        
+        let stream = UnixStream::connect("/var/run/docker.sock").await.unwrap();
+        let (container_stream, _) = client_async(format!("ws://localhost/containers/{}/attach/ws?logs=1&stream=1&stdin=1&stdout=1&stderr=1", container_id), stream).await.expect("Failed to connect");
+        let (write_c, read_c) = container_stream.split();
+    
+        let _ = join!(read_c.forward(write_ws), read_ws.forward(write_c));
+      },
+      Err(e) => {
+        eprintln!("Error: {}", e);
+      }
+    }
   }
 
 }
+

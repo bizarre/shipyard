@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="node_modules/xterm/css/xterm.css" />
+  <script src="node_modules/xterm/lib/xterm.js"></script> 
+  <script src="node_modules/xterm-addon-attach/lib/xterm-addon-attach.js"></script>
+</head>
+<body>
+  <h1>shipyard.rs</h1>
+  <div id="terminal"></div>
+  <script type="module">
+    const term = new Terminal();
+    const socket = new WebSocket('ws://localhost:8080');
+    const attachAddon = new AttachAddon.AttachAddon(socket);
+
+    // Attach the socket to term
+    term.loadAddon(attachAddon);
+    term.open(document.getElementById('terminal'));
+  </script>
+</body>
+</html>
