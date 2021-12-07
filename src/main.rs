@@ -6,7 +6,7 @@ use std::net::{IpAddr,Ipv4Addr};
 use structopt_flags::GetWithDefault;
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "dwcs")]
+#[structopt(name = "shipyard")]
 struct Opt {
   image: String,
   #[structopt(flatten)]
